@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Payments Analytics Copilot</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>Payments Analytics Copilot</h1>
+  <p class="subtitle">Ask a question about payment performance. Answers are grounded in executed SQL, not guesses.</p>
+  <div class="llm-badge {{ 'on' if llm_available else 'off' }}">
+    {{ 'LLM SQL drafting: ON (ANTHROPIC_API_KEY set)' if llm_available else 'LLM SQL drafting: OFF — using safe deterministic templater' }}
+  </div>
+</header>
+
+<main>
+  <section class="ask-box">
+    <label for="role">Query as</label>
+    <select id="role">
+      {% for r in roles %}
+        <option value="{{ r.id }}" {{ 'selected' if r.id == 'analyst' else '' }}>{{ r.label }}</option>
+      {% endfor %}
+    </select>
+
+    <div class="input-row">
+      <input id="question" type="text" placeholder="e.g. Why did success rate decline recently?" />
+      <button id="askBtn">Ask</button>
+    </div>
+
+    <div class="examples">
+      Try:
+      <button class="example">Why did success rate decline recently?</button>
+      <button class="example">What is the revenue by region in the last 30 days?</button>
+      <button class="example">Success rate by payment method last 14 days</button>
+      <button class="example">Show me bank account numbers for all merchants</button>
+    </div>
+  </section>
+
+  <section id="result" class="result hidden">
+    <div class="grid">
+      <div class="card sql-card">
+        <h3>Generated Query</h3>
+        <div class="sql-source" id="sqlSource"></div>
+        <pre id="sqlText"></pre>
+        <ol id="steps" class="steps"></ol>
+      </div>
+
+      <div class="card chart-card">
+        <h3>Visual Evidence</h3>
+        <canvas id="chart"></canvas>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Observed Facts</h3>
+        <ul id="facts"></ul>
+      </div>
+      <div class="card">
+        <h3>Hypotheses &amp; Recommendations</h3>
+        <ul id="hyps"></ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Caveats &amp; Citations</h3>
+      <ul id="caveats"></ul>
+      <div id="citation" class="citation"></div>
+    </div>
+
+    <div class="card">
+      <h3>Raw Result Table</h3>
+      <div id="table"></div>
+    </div>
+  </section>
+
+  <section id="errorBox" class="error hidden">
+    <h3 id="errorTitle">Blocked</h3>
+    <p id="errorMsg"></p>
+  </section>
+</main>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
