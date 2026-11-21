@@ -5,8 +5,9 @@ Two SQL-generation paths:
     parsed intent onto a small set of parameterized SQL templates. Safe by
     construction because every identifier comes from a whitelist, never
     from the raw question text.
-  - Optional LLM drafting (used only if ANTHROPIC_API_KEY is set): asks
-    Claude to draft raw SQL against the documented schema. That draft is
+  - Optional LLM drafting (used only if the Claude wrapper is configured,
+    see backend/llm_client.py): asks Claude to draft raw SQL against the
+    documented schema. That draft is
     NEVER trusted directly — it is always run back through
     validator.validate_sql() before execution, and if it fails validation
     we fall back to the deterministic templater and surface why.

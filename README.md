@@ -14,10 +14,11 @@ and explicit caveats — not a hallucinated summary.
    by region in the last 30 days?") and pick a role (Admin / Analyst /
    Viewer).
 2. The question is parsed into an **intent** (metric, dimension, time
-   window) and turned into SQL by a schema-constrained templater. If
-   `ANTHROPIC_API_KEY` is set, Claude instead *drafts* the SQL — but that
-   draft is never trusted directly: it is always re-validated before
-   execution, and falls back to the safe templater if it fails validation.
+   window) and turned into SQL by a schema-constrained templater. If the
+   Claude wrapper is configured (`WRAPPER_ENDPOINT`/`WRAPPER_API_KEY`),
+   Claude instead *drafts* the SQL — but that draft is never trusted
+   directly: it is always re-validated before execution, and falls back to
+   the safe templater if it fails validation.
 3. The SQL passes a **validator**: SELECT-only, single-statement, table/
    column allow-list, role-based access control (e.g. an Analyst cannot
    query `bank_accounts`), and an automatic row `LIMIT` / execution-step
@@ -138,7 +139,7 @@ pytest
   and data-quality defects (missing amounts, duplicated records) so the
   failure scenarios are reproducible.
 - **NL understanding is a lightweight keyword/intent parser**, not a full
-  text-to-SQL model, when no `ANTHROPIC_API_KEY` is configured. It covers
+  text-to-SQL model, when no Claude wrapper is configured. It covers
   the metrics/dimensions/time-windows used in the example questions
   reliably; open-ended questions outside that vocabulary will fall back to
   a best-effort default rather than genuinely general NL understanding.
