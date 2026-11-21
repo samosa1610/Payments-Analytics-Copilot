@@ -11,14 +11,12 @@ Two SQL-generation paths:
     validator.validate_sql() before execution, and if it fails validation
     we fall back to the deterministic templater and surface why.
 """
-import os
 import re
 import datetime
 from dataclasses import dataclass, field
 
 from .schema import SCHEMA
-
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+from . import llm_client
 
 SCHEMA_DOC = """
 Tables (SQLite):
@@ -161,31 +159,23 @@ def build_sql(intent: Intent) -> tuple[str, list[str]]:
 
 
 def llm_available() -> bool:
-    return bool(ANTHROPIC_API_KEY)
+    return llm_client.available()
 
 
 def llm_draft_sql(question: str, role: str) -> str | None:
-    """Best-effort: ask Claude to draft SQL. Returns None on any failure
-    (missing key, network error, etc.) so the caller can fall back.
+    """Best-effort: ask Claude (via the configured wrapper) to draft SQL.
+    Returns None on any failure (not configured, network error, etc.) so
+    the caller can fall back to the deterministic templater.
     """
-    if not ANTHROPIC_API_KEY:
+    prompt = (
+        f"{SCHEMA_DOC}\n\n"
+        f"Write ONE read-only SQLite SELECT query (no comments, no markdown fences, "
+        f"no semicolon, no explanation — just the SQL) that answers this business "
+        f"question:\n\"{question}\"\n"
+        f"The querying user's role is '{role}'. Respond with ONLY the SQL."
+    )
+    text = llm_client.chat(prompt)
+    if not text:
         return None
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        prompt = (
-            f"{SCHEMA_DOC}\n\n"
-            f"Write ONE read-only SQLite SELECT query (no comments, no markdown fences, "
-            f"no semicolon) that answers this business question:\n\"{question}\"\n"
-            f"The querying user's role is '{role}'. Respond with ONLY the SQL."
-        )
-        resp = client.messages.create(
-            model="claude-sonnet-5-5",
-            max_tokens=400,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = "".join(b.text for b in resp.content if hasattr(b, "text")).strip()
-        text = re.sub(r"^```sql\s*|```$", "", text, flags=re.IGNORECASE | re.MULTILINE).strip()
-        return text
-    except Exception:
-        return None
+    text = re.sub(r"^```sql\s*|^```\s*|```$", "", text, flags=re.IGNORECASE | re.MULTILINE).strip()
+    return text

@@ -42,18 +42,26 @@ def validate_sql(sql: str, role: str) -> tuple[str, list[str]]:
         raise ValidationError("Query contains multiple statements, which is not allowed.")
 
     lowered = sql.lower()
-    if not lowered.strip().startswith("select"):
-        raise ValidationError("Only SELECT queries are allowed — this looks like a write/DDL statement.")
+    stripped = lowered.strip()
+    if not (stripped.startswith("select") or stripped.startswith("with")):
+        raise ValidationError(
+            "Only SELECT queries (optionally with a leading WITH / CTE) are allowed — "
+            "this looks like a write/DDL statement."
+        )
 
     for kw in FORBIDDEN_KEYWORDS:
         if re.search(rf"\b{kw}\b", lowered):
             raise ValidationError(f"Query uses the forbidden keyword '{kw.upper()}'.")
 
+    # CTE names (WITH foo AS (...), bar AS (...)) are not real tables —
+    # exclude them from the table whitelist check below.
+    cte_names = set(re.findall(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s+as\s*\(", lowered))
+
     # table whitelist: every identifier that looks like `table.column` or
-    # follows FROM/JOIN must be a known table.
+    # follows FROM/JOIN must be a known table or a CTE defined in this query.
     referenced_tables = set(re.findall(r"\bfrom\s+([a-zA-Z_][a-zA-Z0-9_]*)", lowered))
     referenced_tables |= set(re.findall(r"\bjoin\s+([a-zA-Z_][a-zA-Z0-9_]*)", lowered))
-    unknown = referenced_tables - ALL_TABLE_NAMES
+    unknown = referenced_tables - ALL_TABLE_NAMES - cte_names
     if unknown:
         raise ValidationError(f"Query references unknown table(s): {', '.join(sorted(unknown))}.")
 

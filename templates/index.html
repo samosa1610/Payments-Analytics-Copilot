@@ -12,7 +12,7 @@
   <h1>Payments Analytics Copilot</h1>
   <p class="subtitle">Ask a question about payment performance. Answers are grounded in executed SQL, not guesses.</p>
   <div class="llm-badge {{ 'on' if llm_available else 'off' }}">
-    {{ 'LLM SQL drafting: ON (ANTHROPIC_API_KEY set)' if llm_available else 'LLM SQL drafting: OFF — using safe deterministic templater' }}
+    {{ 'LLM SQL drafting: ON (Claude wrapper configured)' if llm_available else 'LLM SQL drafting: OFF — using safe deterministic templater' }}
   </div>
 </header>
 

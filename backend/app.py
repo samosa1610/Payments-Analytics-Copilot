@@ -1,6 +1,10 @@
 import os
 import sqlite3
 import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from flask import Flask, request, jsonify, render_template
 
 from .schema import ROLES, DB_PATH_DEFAULT

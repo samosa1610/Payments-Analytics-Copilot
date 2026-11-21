@@ -79,9 +79,12 @@ python -m backend.app
 
 Then open `http://127.0.0.1:5057`.
 
-Optional: set `ANTHROPIC_API_KEY` in the environment before starting the
-server to turn on LLM-drafted SQL (the app works fully without it, using
-the deterministic templater).
+Optional: set `WRAPPER_ENDPOINT`, `WRAPPER_API_KEY`, `WRAPPER_MODEL` in a
+local `.env` (not committed) to turn on real LLM-drafted SQL via a Claude
+API wrapper — the app works fully without it, using the deterministic
+templater. When enabled, Claude's draft is *always* re-validated before
+execution and falls back to the safe templater if it fails validation
+(e.g. referencing a restricted table, or not being a plain SELECT/CTE).
 
 ## Try these questions
 
