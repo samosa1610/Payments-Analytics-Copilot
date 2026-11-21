@@ -156,3 +156,20 @@ pytest
 - **Single-user, single-process, no auth** beyond the role dropdown — this
   is a demo of the *reasoning and safety* pattern, not a deployable
   multi-tenant service.
+
+## Next steps
+
+- **Turn on real LLM-drafted SQL for open-ended questions.** The path is
+  already built (`backend/llm_client.py`, `nl2sql.llm_draft_sql`) and runs
+  through the exact same `validator.validate_sql` gate as the deterministic
+  templater — it just needs a dedicated API key; the Claude wrapper
+  available during this build was reserved for another project, so this
+  slice ships on the deterministic templater, with the LLM path as a
+  drop-in upgrade for vocabulary the keyword parser doesn't cover.
+- **Row-level access control** (e.g. a merchant-ops user scoped to only
+  their own merchant's rows), on top of today's table/column-level RBAC.
+- **A real query-cost estimator** (query plan / EXPLAIN-based) in place of
+  the current step-count heuristic, plus a wall-clock timeout.
+- **Persistent query history and multi-turn context** ("and last month?"
+  building on the previous question), instead of each question being
+  answered independently.
