@@ -58,7 +58,7 @@ function escapeHtml(s) {
 
 function render(data) {
   el("result").classList.remove("hidden");
-  el("sqlSource").textContent = data.sql_source;
+  el("sqlSource").textContent = data.sql_source + (data.cached ? "  [served from cache]" : "");
   el("sqlText").textContent = data.sql;
 
   const stepsEl = el("steps");
@@ -87,6 +87,14 @@ function render(data) {
 
   el("citation").textContent =
     `Dataset: ${data.citation.dataset} | Time window: last ${data.citation.time_window_days} days (since ${data.citation.since})`;
+
+  const confidenceEl = el("confidence");
+  confidenceEl.innerHTML = "";
+  if (data.confidence && data.confidence.length) {
+    data.confidence.forEach((c) => appendLi(confidenceEl, c));
+  } else {
+    appendLi(confidenceEl, "No specific confidence/uncertainty note for this query shape.");
+  }
 
   renderTable(data.columns, data.rows);
   renderChart(data);

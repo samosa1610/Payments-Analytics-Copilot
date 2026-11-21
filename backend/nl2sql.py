@@ -42,6 +42,18 @@ DIMENSION_KEYWORDS = {
     "bank_name": ["bank"],
 }
 
+# Known categorical values per dimension, used to detect an explicit
+# cohort-vs-cohort comparison ("compare Card vs Wallet", "North vs South")
+# rather than a full breakdown by that dimension.
+KNOWN_VALUES = {
+    "payment_method": {"card": "Card", "upi": "UPI", "netbanking": "NetBanking", "wallet": "Wallet"},
+    "region": {"north": "North", "south": "South", "east": "East", "west": "West"},
+    "segment": {
+        "retail": "Retail", "travel": "Travel", "food & beverage": "Food & Beverage",
+        "food": "Food & Beverage", "electronics": "Electronics", "subscription": "Subscription",
+    },
+}
+
 
 @dataclass
 class Intent:
@@ -51,6 +63,7 @@ class Intent:
     compare_prior_period: bool = False
     is_decline_question: bool = False
     wants_bank_account_numbers: bool = False
+    cohort_values: list[str] | None = None
     assumptions: list[str] = field(default_factory=list)
 
 
@@ -88,6 +101,21 @@ def _detect_days(q: str, assumptions: list[str]) -> int:
     return 30
 
 
+def _detect_cohort(q: str) -> tuple[str, str, str] | None:
+    """Detects an explicit cohort-vs-cohort comparison, e.g. 'compare Card
+    vs Wallet' or 'North vs South'. Returns (dimension, valueA, valueB) or
+    None if the question doesn't name two specific values of one dimension.
+    """
+    for dim, values in KNOWN_VALUES.items():
+        found = []
+        for key, canonical in values.items():
+            if re.search(rf"\b{re.escape(key)}\b", q) and canonical not in found:
+                found.append(canonical)
+        if len(found) >= 2:
+            return dim, found[0], found[1]
+    return None
+
+
 def parse_question(question: str) -> Intent:
     q = question.lower()
     intent = Intent()
@@ -96,7 +124,15 @@ def parse_question(question: str) -> Intent:
     intent.dimension = _detect_dimension(q)
     intent.days = _detect_days(q, intent.assumptions)
     intent.is_decline_question = any(w in q for w in ["why", "decline", "dropped", "drop", "fell", "worse", "down"])
-    intent.compare_prior_period = intent.is_decline_question or "compare" in q or "vs" in q or "versus" in q
+
+    cohort = _detect_cohort(q)
+    if cohort and not intent.is_decline_question:
+        intent.dimension = cohort[0]
+        intent.cohort_values = [cohort[1], cohort[2]]
+
+    intent.compare_prior_period = intent.is_decline_question or (
+        intent.cohort_values is None and ("compare" in q or " vs " in q or "versus" in q)
+    )
     return intent
 
 
@@ -142,10 +178,15 @@ def build_sql(intent: Intent) -> tuple[str, list[str]]:
     if intent.dimension:
         dim_col = DIMENSION_COLUMN[intent.dimension]
         steps.append(f"Grouping by dimension '{intent.dimension}' -> `{dim_col}`.")
+        cohort_filter = ""
+        if intent.cohort_values:
+            quoted = ", ".join(f"'{v}'" for v in intent.cohort_values)
+            cohort_filter = f" AND {dim_col} IN ({quoted})"
+            steps.append(f"Detected an explicit cohort comparison -> restricting to {dim_col} IN ({quoted}).")
         sql = (
             f"SELECT {dim_col} AS {intent.dimension}, {metric_expr} AS {intent.metric}, COUNT(*) AS n\n"
             f"{joins}\n"
-            f"WHERE t.created_at >= '{since}'\n"
+            f"WHERE t.created_at >= '{since}'{cohort_filter}\n"
             f"GROUP BY {dim_col}\n"
             f"ORDER BY {intent.metric} DESC"
         )

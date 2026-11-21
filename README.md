@@ -54,20 +54,46 @@ and explicit caveats — not a hallucinated summary.
   — try the "Show me bank account numbers" example as Analyst vs Admin.
 - **Data-quality warnings**: seeded NULL amounts + duplicated
   `external_ref`s, surfaced by `analysis.data_quality_report`.
-- **Query cost/timeout controls**: enforced row `LIMIT` + sqlite
-  progress-handler step budget in `analysis.run_query`.
+- **Query cost/timeout controls and caching**: enforced row `LIMIT` +
+  SQLite progress-handler step budget (`analysis.run_query`), plus a
+  120-second in-process response cache keyed by (question, role) —
+  `backend/cache.py` — so a repeated question makes no SQL/LLM call at all
+  (the UI labels cached answers "[served from cache]").
+- **Compare cohorts / drill-down**: an explicit "compare A vs B" question
+  (e.g. "Compare Card vs Wallet success rate") is detected and restricted
+  to exactly those two values, rather than a full breakdown —
+  `nl2sql._detect_cohort`. The "why did X decline" prior-vs-recent
+  decomposition is the time-based form of the same idea.
+- **Confidence/uncertainty explanations**: `analysis.confidence_notes`
+  reports a 95%-CI margin of error for success-rate estimates (normal
+  approximation on the underlying sample size) and flags any segment with
+  fewer than 200 transactions as low-confidence, shown in their own
+  "Confidence & Uncertainty" panel.
+- **Evaluated against known-answer test questions**: `tests/test_known_answers.py`
+  (run with `pytest`) checks the generated-SQL pipeline's output against
+  independently hand-written "golden" SQL for the same questions, checks
+  the mix-shift decomposition is internally consistent, and checks the
+  validator's safety/access-control properties (blocks writes, blocks
+  multi-statement SQL, blocks restricted tables for non-admin roles,
+  allows CTEs, injects a LIMIT). 11 tests, all passing.
 - **Failure scenarios demonstrated**:
   - *Missing/duplicated records* → data-quality caveats on every query.
   - *Access-scope violation* → Analyst/Viewer asking for bank account
     numbers gets a 403 with the attempted SQL shown, not silently denied.
+  - *Two sources disagree on the same metric* → `analysis.cross_source_revenue_check`
+    compares the transactions ledger's revenue against the settlements
+    ledger's settled amount for the same window (they legitimately diverge
+    due to settlement lag) and surfaces the discrepancy with guidance on
+    which figure to use for which purpose, rather than silently picking one.
   - *Ambiguous time period* → defaults to 30 days with an explicit
     "Assumption:" caveat.
   - *Success-rate decline explained by mix shift* → the decomposition
     panel for "why did success rate decline" questions.
   - *Unsafe/expensive generated query* → an LLM-drafted query that fails
-    validation is rejected and logged in the steps panel, with a safe
+    validation (e.g. references a restricted table, or isn't a plain
+    SELECT/CTE) is rejected and logged in the steps panel, with a safe
     fallback query used instead; a runaway query is aborted by the step
-    budget.
+    budget. Verified live against the real wrapper, not just unit-tested.
 
 ## Running it
 
@@ -89,10 +115,20 @@ execution and falls back to the safe templater if it fails validation
 ## Try these questions
 
 - "Why did success rate decline recently?" (mix-shift decomposition)
-- "What is the revenue by region in the last 30 days?"
-- "Success rate by payment method last 14 days"
+- "What is the revenue by region in the last 30 days?" (also triggers the
+  transactions-vs-settlements disagreement caveat)
+- "Success rate by payment method last 14 days" (confidence/uncertainty panel)
+- "Compare Card vs Wallet success rate" (cohort drill-down)
 - "Show me bank account numbers for all merchants" — as **Business
   Analyst** (blocked) then as **Admin** (allowed)
+
+## Testing
+
+```powershell
+pip install -r requirements.txt
+python -m backend.generate_data
+pytest
+```
 
 ## Assumptions, mocked dependencies & limitations
 

@@ -11,6 +11,7 @@ from .schema import ROLES, DB_PATH_DEFAULT
 from . import nl2sql
 from . import validator
 from . import analysis
+from . import cache
 from .narrative import build_narrative
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -51,6 +52,18 @@ def ask():
         return jsonify({"error": f"Unknown role '{role}'."}), 400
     if not question:
         return jsonify({"error": "Question is required."}), 400
+
+    cached = cache.get(question, role)
+    if cached:
+        payload, age = cached
+        payload = dict(payload)
+        payload["narrative"] = dict(payload["narrative"])
+        payload["narrative"]["caveats"] = [
+            *payload["narrative"]["caveats"],
+            f"Served from cache (computed {age:.0f}s ago, TTL {cache.TTL_SECONDS}s) — no SQL/LLM call was made for this request.",
+        ]
+        payload["cached"] = True
+        return jsonify(payload)
 
     intent = nl2sql.parse_question(question)
     sql_candidate, steps = nl2sql.build_sql(intent)
@@ -93,15 +106,22 @@ def ask():
     since = (datetime.date.today() - datetime.timedelta(days=intent.days)).isoformat()
     dq_warnings = analysis.data_quality_report(conn, since)
 
+    if intent.metric == "revenue":
+        disagreement = analysis.cross_source_revenue_check(conn, since)
+        if disagreement:
+            dq_warnings = [*dq_warnings, disagreement]
+
     decomposition = None
     if intent.metric == "success_rate" and intent.compare_prior_period:
         decomposition = analysis.decline_decomposition(conn, intent.days)
+
+    confidence = analysis.confidence_notes(intent, cols, rows)
 
     conn.close()
 
     narrative = build_narrative(intent, cols, rows, dq_warnings + warnings, decomposition, sql_source, access_note)
 
-    return jsonify({
+    payload = {
         "question": question,
         "role": role,
         "sql": safe_sql,
@@ -111,12 +131,16 @@ def ask():
         "rows": rows,
         "decomposition": decomposition,
         "narrative": narrative,
+        "confidence": confidence,
+        "cached": False,
         "citation": {
             "dataset": "payments.db (transactions, merchants, settlements, bank_accounts)",
             "time_window_days": intent.days,
             "since": since,
         },
-    })
+    }
+    cache.set(question, role, payload)
+    return jsonify(payload)
 
 
 if __name__ == "__main__":

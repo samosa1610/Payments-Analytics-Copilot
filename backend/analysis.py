@@ -4,6 +4,7 @@ single spurious root cause.
 """
 import sqlite3
 import datetime
+import math
 
 
 def run_query(conn: sqlite3.Connection, sql: str, max_steps: int = 20_000_000, check_every: int = 500_000):
@@ -72,6 +73,86 @@ def data_quality_report(conn: sqlite3.Connection, since: str) -> list[str]:
             f"duplicated callback/record. Counts and revenue may be slightly overstated if not de-duplicated."
         )
     return warnings
+
+
+LOW_SAMPLE_THRESHOLD = 200
+
+
+def confidence_notes(intent, cols: list[str], rows: list[list]) -> list[str]:
+    """Produces explicit confidence/uncertainty statements rather than
+    presenting a point estimate as if it were exact. For a success_rate
+    with a sample size column 'n', uses the normal approximation for a
+    proportion's 95% confidence interval; otherwise just flags small
+    samples as low-confidence.
+    """
+    if "n" not in cols or not rows:
+        return []
+    n_idx = cols.index("n")
+    if intent.metric in cols:
+        metric_idx = cols.index(intent.metric)
+    else:
+        metric_idx = next((i for i, c in enumerate(cols) if intent.metric in c or c in intent.metric), None)
+    notes = []
+
+    for row in rows[:8]:  # cap to avoid a wall of text on large breakdowns
+        n = row[n_idx]
+        if not n:
+            continue
+        label = str(row[0]) if len(cols) > 2 else None
+        prefix = f"'{label}': " if label else ""
+
+        if intent.metric == "success_rate" and metric_idx is not None:
+            p = (row[metric_idx] or 0) / 100.0
+            margin = 1.96 * math.sqrt(max(p * (1 - p), 0) / n) * 100
+            notes.append(
+                f"{prefix}estimated success rate has a 95% confidence margin of ±{margin:.2f} "
+                f"percentage points (n={n})."
+            )
+        if n < LOW_SAMPLE_THRESHOLD:
+            notes.append(
+                f"{prefix}based on only {n} transactions — treat this estimate as LOW CONFIDENCE; "
+                f"widen the time window for a more stable figure."
+            )
+    return notes
+
+
+DISAGREEMENT_THRESHOLD_PCT = 1.0
+
+
+def cross_source_revenue_check(conn: sqlite3.Connection, since: str) -> str | None:
+    """'Revenue' can be computed from two different sources that will
+    legitimately disagree: the transactions ledger (amount at the moment
+    of a SUCCESS status) vs. the settlements ledger (amount actually
+    settled to the merchant's bank). Settlement lag, DELAYED/FAILED
+    settlements and the window boundary mean these rarely match exactly —
+    surfacing that disagreement explicitly beats silently picking one.
+    """
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT ROUND(SUM(amount), 2) FROM transactions WHERE status='SUCCESS' AND created_at >= ?",
+        (since,),
+    )
+    txn_total = cur.fetchone()[0] or 0.0
+
+    cur.execute(
+        "SELECT ROUND(SUM(settled_amount), 2) FROM settlements WHERE status='SETTLED' AND settled_at >= ?",
+        (since,),
+    )
+    settled_total = cur.fetchone()[0] or 0.0
+
+    if txn_total == 0:
+        return None
+    diff_pct = abs(txn_total - settled_total) / txn_total * 100
+    if diff_pct < DISAGREEMENT_THRESHOLD_PCT:
+        return None
+    return (
+        f"Two sources disagree on revenue for this window: the transactions ledger shows "
+        f"INR {txn_total:,.2f} (successful transactions), while the settlements ledger shows "
+        f"INR {settled_total:,.2f} (amount actually settled) — a {diff_pct:.1f}% difference. "
+        f"This is expected: settlement lags transaction time by 1-3 days and some settlements are "
+        f"DELAYED/FAILED. Use the transactions figure for 'revenue booked' and the settlements figure "
+        f"for 'cash actually received'; do not treat them as interchangeable."
+    )
 
 
 def decline_decomposition(conn: sqlite3.Connection, days: int):
